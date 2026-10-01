@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Compiled class file
+*.class
+
+# Log file
+*.log
+
+# Camel JBang
+.camel-jbang/
+
+# Local environment with real secrets
+application-dev.properties
+
+# Claude Code
+CLAUDE.md
+AGENTS.md

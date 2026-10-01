@@ -1,0 +1,51 @@
+# The department queues, shared by both entry routes (ticket-routing.camel.yaml and
+# ticket-routing-l4j.camel.yaml). Each is a stand-in for a real queue: swap the log for a
+# kafka:, jms: or mail: endpoint and the demo becomes a system.
+
+- route:
+    id: technical
+    from:
+      uri: direct:technical
+      steps:
+        - log:
+            message: "TECHNICAL queue: ${body}"
+        - setBody:
+            expression:
+              simple:
+                expression: "Routed to technical (confidence ${variable.confidence})"
+
+- route:
+    id: commercial
+    from:
+      uri: direct:commercial
+      steps:
+        - log:
+            message: "COMMERCIAL queue: ${body}"
+        - setBody:
+            expression:
+              simple:
+                expression: "Routed to commercial (confidence ${variable.confidence})"
+
+- route:
+    id: legal
+    from:
+      uri: direct:legal
+      steps:
+        - log:
+            message: "LEGAL queue: ${body}"
+        - setBody:
+            expression:
+              simple:
+                expression: "Routed to legal (confidence ${variable.confidence})"
+
+- route:
+    id: human-review
+    from:
+      uri: direct:human-review
+      steps:
+        - log:
+            message: "HUMAN REVIEW: department=${variable.department} confidence=${variable.confidence} ticket=${body}"
+        - setBody:
+            expression:
+              simple:
+                expression: "Sent to human review (department ${variable.department}, confidence ${variable.confidence})"

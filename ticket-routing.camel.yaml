@@ -1,0 +1,69 @@
+- route:
+    id: ticket-routing
+    from:
+      uri: platform-http:/ticket
+      parameters:
+        httpMethodRestrict: POST
+      steps:
+        # A plain `curl -d text` sends application/x-www-form-urlencoded. Vert.x form-parses that
+        # before Camel sees it, so the ticket arrives as the name of a single empty form field
+        # instead of as the body. Put it back, and drop the form-derived headers so a field name
+        # full of spaces cannot leak into the response.
+        - choice:
+            when:
+              - expression:
+                  simple:
+                    expression: "${body} is 'java.util.Map'"
+                steps:
+                  - setBody:
+                      expression:
+                        simple:
+                          expression: "${body.keySet().iterator().next()}"
+                  - removeHeaders:
+                      pattern: "*"
+        - to:
+            description: Ask the System One model which team owns this ticket
+            uri: typesafe-ai:triage
+        - setVariable:
+            name: department
+            expression:
+              simple:
+                expression: "${exchangeProperty.evaluation[answers][department][choice]}"
+        - setVariable:
+            name: confidence
+            expression:
+              simple:
+                expression: "${exchangeProperty.evaluation[answers][department][confidence]}"
+        - log:
+            message: "department=${variable.department} confidence=${variable.confidence} probabilities=${exchangeProperty.evaluation[answers][department][probabilities]}"
+        - choice:
+            when:
+              - description: Quote the threshold so Simple compares decimals instead of coercing to int
+                expression:
+                  simple:
+                    expression: "${variable.confidence} < '{{ticket.confidenceThreshold}}'"
+                steps:
+                  - to:
+                      uri: direct:human-review
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'technical'"
+                steps:
+                  - to:
+                      uri: direct:technical
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'commercial'"
+                steps:
+                  - to:
+                      uri: direct:commercial
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'legal'"
+                steps:
+                  - to:
+                      uri: direct:legal
+            otherwise:
+              steps:
+                - to:
+                    uri: direct:human-review

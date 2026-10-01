@@ -1,0 +1,90 @@
+# The same triage as ticket-routing.camel.yaml, but the decision step is a LangChain4j
+# decision service (TriageDecisions.java) called as a Camel bean. The question is a typed
+# Java interface instead of triage-questions.json, and the answer is a Choice object on the
+# body instead of an exchange property. Everything after the decision reuses the same
+# direct: department routes from departments.camel.yaml.
+
+- beans:
+    - name: triageDecisions
+      type: TriageDecisions
+      constructors:
+        0: "{{typesafe.base-url}}"
+        1: "{{typesafe.model}}"
+
+- route:
+    id: ticket-routing-l4j
+    from:
+      uri: platform-http:/ticket-l4j
+      parameters:
+        httpMethodRestrict: POST
+      steps:
+        # Same curl plumbing as the component route: put a form-parsed body back together.
+        - choice:
+            when:
+              - expression:
+                  simple:
+                    expression: "${body} is 'java.util.Map'"
+                steps:
+                  - setBody:
+                      expression:
+                        simple:
+                          expression: "${body.keySet().iterator().next()}"
+                  - removeHeaders:
+                      pattern: "*"
+        # The bean replaces the body with the Choice, so park the ticket text first.
+        - setVariable:
+            name: ticket
+            expression:
+              simple:
+                expression: "${bodyAs(String)}"
+        - bean:
+            description: Ask the decision service which team owns this ticket
+            ref: triageDecisions
+            method: decide
+        - setVariable:
+            name: department
+            expression:
+              simple:
+                expression: "${body.value.name.toLowerCase()}"
+        - setVariable:
+            name: confidence
+            expression:
+              simple:
+                expression: "${body.confidence}"
+        - log:
+            message: "department=${variable.department} confidence=${variable.confidence} probabilities=${body.probabilities}"
+        - setBody:
+            expression:
+              simple:
+                expression: "${variable.ticket}"
+        - choice:
+            when:
+              - description: No confidence or below the threshold goes to a human
+                expression:
+                  simple:
+                    expression: "${variable.confidence} == null || ${variable.confidence} < '{{ticket.confidenceThreshold}}'"
+                steps:
+                  - to:
+                      uri: direct:human-review
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'technical'"
+                steps:
+                  - to:
+                      uri: direct:technical
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'commercial'"
+                steps:
+                  - to:
+                      uri: direct:commercial
+              - expression:
+                  simple:
+                    expression: "${variable.department} == 'legal'"
+                steps:
+                  - to:
+                      uri: direct:legal
+            otherwise:
+              steps:
+                - to:
+                    uri: direct:human-review
