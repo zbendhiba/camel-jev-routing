@@ -90,7 +90,7 @@ camel run ticket-routing.camel.yaml departments.camel.yaml
 camel run ticket-routing-l4j.camel.yaml TriageDecisions.java departments.camel.yaml
 ```
 
-Then send tickets. The same eight work on both paths, swap `/ticket` for `/ticket-l4j`:
+Then send tickets. Through the semantic route:
 
 ```bash
 curl -d 'Your API has been timing out for the last hour.' localhost:8080/ticket
@@ -103,8 +103,21 @@ curl -d 'hello' localhost:8080/ticket
 curl -d 'thanks, have a nice weekend' localhost:8080/ticket
 ```
 
-The first six route: technical, technical, commercial, legal, commercial, legal. The last two go
-to human review. The answers carry the numbers:
+And the same eight through the LangChain4j route:
+
+```bash
+curl -d 'Your API has been timing out for the last hour.' localhost:8080/ticket-l4j
+curl -d 'The webhook integration returns 500 since your last deploy.' localhost:8080/ticket-l4j
+curl -d 'My payouts have been failing for 3 days and I was double charged.' localhost:8080/ticket-l4j
+curl -d 'Please delete all personal data you hold about me under GDPR.' localhost:8080/ticket-l4j
+curl -d 'We are a 200-person team, what does enterprise pricing look like?' localhost:8080/ticket-l4j
+curl -d 'We need your SOC 2 report before we can renew.' localhost:8080/ticket-l4j
+curl -d 'hello' localhost:8080/ticket-l4j
+curl -d 'thanks, have a nice weekend' localhost:8080/ticket-l4j
+```
+
+The first six route on both paths: technical, technical, commercial, legal, commercial, legal.
+The last two go to human review. The answers carry the numbers:
 
 ```
 Routed to commercial (confidence 0.86, severity 1.95)
