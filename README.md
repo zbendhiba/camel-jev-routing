@@ -238,8 +238,8 @@ Three lessons in this table:
 
 ## The model names the route
 
-There is no Choice EIP in these routes. The department labels are the `direct:` route names, so
-after the gate, routing is one dynamic step:
+There is no Content-Based Router (`choice`) in these routes. The department labels are the
+`direct:` route names, so after the gate, routing is one dynamic step:
 
 ```yaml
 - filter:
