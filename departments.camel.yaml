@@ -12,7 +12,7 @@
         - setBody:
             expression:
               simple:
-                expression: "Routed to technical (confidence ${variable.confidence})"
+                expression: "Routed to technical (confidence ${variable.confidence}, severity ${variable.severity})"
 
 - route:
     id: commercial
@@ -24,7 +24,7 @@
         - setBody:
             expression:
               simple:
-                expression: "Routed to commercial (confidence ${variable.confidence})"
+                expression: "Routed to commercial (confidence ${variable.confidence}, severity ${variable.severity})"
 
 - route:
     id: legal
@@ -36,7 +36,7 @@
         - setBody:
             expression:
               simple:
-                expression: "Routed to legal (confidence ${variable.confidence})"
+                expression: "Routed to legal (confidence ${variable.confidence}, severity ${variable.severity})"
 
 - route:
     id: human-review
@@ -44,8 +44,8 @@
       uri: direct:human-review
       steps:
         - log:
-            message: "HUMAN REVIEW: department=${variable.department} confidence=${variable.confidence} ticket=${body}"
+            message: "HUMAN REVIEW: actionable=${variable.actionable} department=${variable.department} ticket=${body}"
         - setBody:
             expression:
               simple:
-                expression: "Sent to human review (department ${variable.department}, confidence ${variable.confidence})"
+                expression: "Sent to human review (actionable ${variable.actionable}, department ${variable.department})"

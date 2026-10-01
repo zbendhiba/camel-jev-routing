@@ -1,8 +1,8 @@
 # The same triage as ticket-routing.camel.yaml, but the decision step is a LangChain4j
-# decision service (TriageDecisions.java) called as a Camel bean. The question is a typed
-# Java interface instead of triage-questions.json, and the answer is a Choice object on the
-# body instead of an exchange property. Everything after the decision reuses the same
-# direct: department routes from departments.camel.yaml.
+# decision service (TriageDecisions.java) called as a Camel bean. The three questions are a
+# typed record instead of triage-questions.json, and the answers come back as YesNoAnswer,
+# Choice and Scale objects on the body instead of an exchange property. Everything after the
+# decision reuses the direct: department routes from departments.camel.yaml.
 
 - beans:
     - name: triageDecisions
@@ -31,60 +31,52 @@
                           expression: "${body.keySet().iterator().next()}"
                   - removeHeaders:
                       pattern: "*"
-        # The bean replaces the body with the Choice, so park the ticket text first.
+        # The bean replaces the body with the Assessment, so park the ticket text first.
         - setVariable:
             name: ticket
             expression:
               simple:
                 expression: "${bodyAs(String)}"
         - bean:
-            description: Ask the decision service which team owns this ticket
+            description: One assess() call answers all three questions
             ref: triageDecisions
-            method: decide
+            method: assess
+        - setVariable:
+            name: actionable
+            expression:
+              simple:
+                expression: "${body.actionable.probability}"
         - setVariable:
             name: department
             expression:
               simple:
-                expression: "${body.value.name.toLowerCase()}"
+                expression: "${body.department.value.name.toLowerCase()}"
         - setVariable:
             name: confidence
             expression:
               simple:
-                expression: "${body.confidence}"
+                expression: "${body.department.confidence}"
+        - setVariable:
+            name: severity
+            expression:
+              simple:
+                expression: "${body.severity.mean}"
         - log:
-            message: "department=${variable.department} confidence=${variable.confidence} probabilities=${body.probabilities}"
+            message: "actionable=${variable.actionable} department=${variable.department} confidence=${variable.confidence} severity=${variable.severity}"
         - setBody:
             expression:
               simple:
                 expression: "${variable.ticket}"
-        - choice:
-            when:
-              - description: No confidence or below the threshold goes to a human
-                expression:
-                  simple:
-                    expression: "${variable.confidence} == null || ${variable.confidence} < '{{ticket.confidenceThreshold}}'"
-                steps:
-                  - to:
-                      uri: direct:human-review
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'technical'"
-                steps:
-                  - to:
-                      uri: direct:technical
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'commercial'"
-                steps:
-                  - to:
-                      uri: direct:commercial
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'legal'"
-                steps:
-                  - to:
-                      uri: direct:legal
-            otherwise:
-              steps:
-                - to:
-                    uri: direct:human-review
+        # Not actionable? A human gets it, and the exchange stops here.
+        - filter:
+            expression:
+              simple:
+                expression: "${variable.actionable} < '0.5'"
+            steps:
+              - to:
+                  uri: direct:human-review
+              - stop: {}
+        # The model names the route. Safe only because Choice<Department> is a closed enum:
+        # every constant must have a matching direct: route, and nothing else can come back.
+        - toD:
+            uri: "direct:${variable.department}"

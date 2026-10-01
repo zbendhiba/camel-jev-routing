@@ -1,3 +1,37 @@
+# Ticket triage with the semantic language from camel-semantic (preview in 4.23).
+# The questions are declared once, provider-independent; camel-typesafe-ai is discovered on the
+# classpath as the adapter and reuses the camel.component.typesafe-ai.* configuration.
+# refs:actionable,department,severity evaluates all three questions in a single model call. The
+# human-review gate is a dedicated boolean question instead of a confidence threshold: ask the
+# model whether the ticket is worth routing, do not infer it from how peaked the choice
+# distribution is.
+
+- semantic:
+    question:
+      actionable:
+        type: boolean
+        instructions: Is this an actionable support request, rather than small talk or a greeting?
+        state: "${bodyAs(String)}"
+        threshold: 0.5
+        uncertainty: 0.1
+        uncertaintyPolicy: non-match
+      department:
+        type: choice
+        instructions: Which team should handle this support ticket?
+        state: "${bodyAs(String)}"
+        criteria:
+          technical: "The product is not working: a bug, an outage, API errors, a webhook that stopped firing, responses that got slow"
+          commercial: "Anything about money: an invoice, a refund, a charge, a price, a quote, a plan, a contract renewal"
+          legal: "Data protection and compliance: deleting personal data, a GDPR or privacy request, terms of service, a security questionnaire, an audit"
+      severity:
+        type: score
+        instructions: How severe is the reported issue?
+        state: "${bodyAs(String)}"
+        criteria:
+          - A question or a request, nothing is broken
+          - Something is broken but there is a workaround or it can wait
+          - "Business is blocked: an outage, failing payments or a legal deadline"
+
 - route:
     id: ticket-routing
     from:
@@ -5,10 +39,8 @@
       parameters:
         httpMethodRestrict: POST
       steps:
-        # A plain `curl -d text` sends application/x-www-form-urlencoded. Vert.x form-parses that
-        # before Camel sees it, so the ticket arrives as the name of a single empty form field
-        # instead of as the body. Put it back, and drop the form-derived headers so a field name
-        # full of spaces cannot leak into the response.
+        # A plain `curl -d text` is form-parsed by Vert.x before Camel sees it: put the ticket
+        # text back together.
         - choice:
             when:
               - expression:
@@ -21,49 +53,48 @@
                           expression: "${body.keySet().iterator().next()}"
                   - removeHeaders:
                       pattern: "*"
-        - to:
-            description: Ask the System One model which team owns this ticket
-            uri: typesafe-ai:triage
+        # One model call answers all three questions. The decisions arrive as a map, the full
+        # per-question results (probabilities, confidence, usage) as an exchange property.
+        - setVariable:
+            name: decisions
+            expression:
+              language:
+                language: semantic
+                expression: "refs:actionable,department,severity"
         - setVariable:
             name: department
             expression:
               simple:
-                expression: "${exchangeProperty.evaluation[answers][department][choice]}"
+                expression: "${variable.decisions[department]}"
         - setVariable:
             name: confidence
             expression:
               simple:
-                expression: "${exchangeProperty.evaluation[answers][department][confidence]}"
+                expression: "${exchangeProperty.CamelSemanticResults[department].confidence}"
+        - setVariable:
+            name: severity
+            expression:
+              simple:
+                expression: "${variable.decisions[severity]}"
+        - setVariable:
+            name: actionable
+            expression:
+              simple:
+                expression: "${exchangeProperty.CamelSemanticResults[actionable].probability}"
         - log:
-            message: "department=${variable.department} confidence=${variable.confidence} probabilities=${exchangeProperty.evaluation[answers][department][probabilities]}"
-        - choice:
-            when:
-              - description: Quote the threshold so Simple compares decimals instead of coercing to int
-                expression:
-                  simple:
-                    expression: "${variable.confidence} < '{{ticket.confidenceThreshold}}'"
-                steps:
-                  - to:
-                      uri: direct:human-review
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'technical'"
-                steps:
-                  - to:
-                      uri: direct:technical
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'commercial'"
-                steps:
-                  - to:
-                      uri: direct:commercial
-              - expression:
-                  simple:
-                    expression: "${variable.department} == 'legal'"
-                steps:
-                  - to:
-                      uri: direct:legal
-            otherwise:
-              steps:
-                - to:
-                    uri: direct:human-review
+            message: "actionable=${variable.decisions[actionable]} department=${variable.department} confidence=${variable.confidence} severity=${variable.severity} noul=${exchangeProperty.CamelSemanticResults[actionable].probability}"
+        # Not actionable? A human gets it, and the exchange stops here. The boolean decision
+        # already applied the threshold and the uncertainty band.
+        - filter:
+            expression:
+              simple:
+                expression: "${variable.decisions[actionable]} == false"
+            steps:
+              - to:
+                  uri: direct:human-review
+              - stop: {}
+        # The model names the route. Safe only because the choice decision is validated against
+        # the declared criteria: every criterion must have a matching direct: route, and nothing
+        # else can come back.
+        - toD:
+            uri: "direct:${variable.department}"

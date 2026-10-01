@@ -1,16 +1,17 @@
 import dev.langchain4j.model.decision.DecisionModel;
+import dev.langchain4j.model.decision.response.YesNoAnswer;
 import dev.langchain4j.model.output.structured.Description;
 import dev.langchain4j.model.typesafe.TypeSafeDecisionModel;
+import dev.langchain4j.service.V;
 import dev.langchain4j.service.decision.Choice;
 import dev.langchain4j.service.decision.Decide;
-import dev.langchain4j.service.V;
 import dev.langchain4j.service.decision.DecisionServices;
+import dev.langchain4j.service.decision.Scale;
 
 /**
- * The same triage decision as triage-questions.json, but through LangChain4j's decision API
- * (experimental, 1.21.0). The question lives in Java types: the enum constants are the options,
- * their @Description is the criteria, and the answer comes back as a typed Choice instead of an
- * exchange property.
+ * The same triage as triage-questions.json, but through LangChain4j's decision API (experimental,
+ * 1.21.0). The questions live in Java types: a record field per question, enum constants as the
+ * options, @Description as the criteria. One assess() call answers all three in a single request.
  */
 public class TriageDecisions {
 
@@ -23,9 +24,27 @@ public class TriageDecisions {
         LEGAL
     }
 
+    /** Ordered from lowest to highest, the order defines the scale. */
+    public enum Severity {
+        @Description("A question or a request, nothing is broken")
+        ROUTINE,
+        @Description("Something is broken but there is a workaround or it can wait")
+        DEGRADED,
+        @Description("Business is blocked: an outage, failing payments or a legal deadline")
+        BLOCKING
+    }
+
+    public record Assessment(
+            @Decide("Is this an actionable support request, rather than small talk or a greeting?")
+            YesNoAnswer actionable,
+            @Decide("Which team should handle this support ticket?")
+            Choice<Department> department,
+            @Decide("How severe is the reported issue?")
+            Scale<Severity> severity) {
+    }
+
     public interface Triage {
-        @Decide("Which team should handle this support ticket?")
-        Choice<Department> department(@V("ticket") String ticket);
+        Assessment assess(@V("ticket") String ticket);
     }
 
     private final Triage triage;
@@ -38,7 +57,7 @@ public class TriageDecisions {
         this.triage = DecisionServices.create(Triage.class, model);
     }
 
-    public Choice<Department> decide(String ticket) {
-        return triage.department(ticket);
+    public Assessment assess(String ticket) {
+        return triage.assess(ticket);
     }
 }
